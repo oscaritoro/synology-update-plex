@@ -108,6 +108,15 @@ EOF
   fi
 }
 
+function get_dsm_major_version() {
+  dsm_major_version=$(grep -oP 'majorversion="\K[^"]+' /etc.defaults/VERSION)
+  if [[ -z "$dsm_major_version" ]]; then
+    fail 'Unable to retrieve DSM major version data'
+  else
+    echo "DSM Major Version found: $dsm_major_version"
+  fi
+}
+
 function build_downloads_url() {
   downloads_url='https://plex.tv/api/downloads/5.json'
 
@@ -140,6 +149,9 @@ function build_downloads_url() {
 
 function retrieve_version_data() {
   header 'Retrieving version data'
+    
+  get_dsm_major_version
+  
   downloads_json="$(curl -s "$downloads_url")"
   if [[ -z "$downloads_json" ]]; then
     fail 'Unable to retrieve version data'
@@ -147,12 +159,35 @@ function retrieve_version_data() {
 }
 
 function set_available_version() {
-  available_version=$(jq -r .nas.Synology.version <<< "$downloads_json")
+  echo "Looking for Available Version (DSM $dsm_major_version)"
+  case $dsm_major_version in
+  6)
+    available_version=$(jq -r '.nas[] | select(.id == "synology") | .version' <<< "$downloads_json")
+  ;;
+  7)
+    available_version=$(jq -r '.nas[] | select(.id == "synology-dsm7") | .version' <<< "$downloads_json")
+  ;;
+  *)
+    fail "DSM $dsm_major_version not currently Supported!"
+  ;;
+  esac
   echo "Available version: $available_version"
 }
 
 function set_installed_version() {
-  installed_version=$(/var/packages/Plex\ Media\ Server/target/Plex\ Media\ Server --version)
+  echo "Looking for Installed Version (DSM $dsm_major_version)"
+  case $dsm_major_version in
+  6)
+    installed_version=$(/var/packages/Plex\ Media\ Server/target/Plex\ Media\ Server --version)
+  ;;
+  7)
+    installed_version=$(/var/packages/PlexMediaServer/target/Plex\ Media\ Server --version)
+  ;;
+  *)
+    fail "DSM $dsm_major_version not currently Supported!"
+  ;;
+  esac
+
   installed_version=${installed_version:1}
   echo "Installed version: $installed_version"
 }
@@ -208,7 +243,25 @@ function find_release() {
   local hw_version=$(</proc/sys/kernel/syno_hw_version)
   local machine=$(uname -m)
   local arch=$(get_arch "$machine" "$hw_version")
-  release_json="$(jq '.nas.Synology.releases[] | select(.build == "linux-'$arch'")' <<< "$downloads_json")"
+  
+  echo "Getting Release information (DSM $dsm_major_version)"
+  case $dsm_major_version in
+  6)
+    releases_json="$(jq '.nas[] | select(.id == "synology") | {releases}' <<< "$downloads_json")"
+  ;;
+  7)
+    releases_json="$(jq '.nas[] | select(.id == "synology-dsm7") | {releases}' <<< "$downloads_json")"
+  ;;
+  *)
+    fail "DSM $dsm_major_version not currently Supported!"
+  ;;
+  esac
+  
+  if [[ -z "$releases_json" ]]; then
+    fail "Unable to find releases for DSM $dsm_major_version"
+  fi
+  
+  release_json="$(jq '.releases[] | select(.build == "linux-'$arch'")' <<< "$releases_json")"
   if [[ -z "$release_json" ]]; then
     fail "Unable to find release for $hw_version/$machine/$arch"
   fi
