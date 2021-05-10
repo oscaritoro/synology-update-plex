@@ -296,7 +296,17 @@ function install_package() {
 
 function restart_plex() {
   header 'Restarting Plex Media Server'
-  synopkg start 'Plex Media Server'
+  case $dsm_major_version in
+  6)
+    synopkg start 'Plex Media Server'
+  ;;
+  7)
+    synopkg start 'PlexMediaServer'
+  ;;
+  *)
+    fail "DSM $dsm_major_version not currently Supported!"
+  ;;
+  esac
 }
 
 function main() {
